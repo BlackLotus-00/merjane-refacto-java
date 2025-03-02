@@ -26,54 +26,54 @@ public class OrderProcessingServiceImplementation implements OrderProcessingServ
     private ProductService productService;
 
     public ProcessOrderResponse processOrder(Long orderId) {
-
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new IllegalArgumentException("Order not found: " + orderId));
 
-        Set<Product> products = order.getItems();
-        for (Product p : products) {
-            switch (p.getType()) {
-                case "NORMAL" -> handleNormalProduct(p);
-                case "SEASONAL" -> handleSeasonalProduct(p);
-                case "EXPIRABLE" -> handleExpirableProduct(p);
-                default -> {
-                    System.out.println("Unknown product type: " + p.getType());
-                }
-            }
-        }
+        order.getItems().forEach(this::processProduct);
 
         return new ProcessOrderResponse(order.getId());
     }
 
-    private void handleNormalProduct(Product p) {
-        if (p.getAvailable() > 0) {
-            p.setAvailable(p.getAvailable() - 1);
-            productRepository.save(p);
-            return;
-        }
-        int leadTime = p.getLeadTime();
-        if (leadTime > 0) {
-            productService.notifyDelay(leadTime, p);
+    private void processProduct(Product product) {
+        switch (product.getType()) {
+            case "NORMAL" -> handleNormalProduct(product);
+            case "SEASONAL" -> handleSeasonalProduct(product);
+            case "EXPIRABLE" -> handleExpirableProduct(product);
+            default -> System.out.println("Unknown product type: " + product.getType());
         }
     }
 
-    private void handleSeasonalProduct(Product p) {
-        if (LocalDate.now().isAfter(p.getSeasonStartDate())
-                && LocalDate.now().isBefore(p.getSeasonEndDate())
-                && p.getAvailable() > 0) {
-            p.setAvailable(p.getAvailable() - 1);
-            productRepository.save(p);
-        } else {
-            productService.handleSeasonalProduct(p);
+    private void handleNormalProduct(Product product) {
+        if (product.getAvailable() > 0) {
+            decrementStock(product);
+        } else if (product.getLeadTime() > 0) {
+            productService.notifyDelay(product.getLeadTime(), product);
         }
     }
 
-    private void handleExpirableProduct(Product p) {
-        if (p.getAvailable() > 0 && p.getExpiryDate().isAfter(LocalDate.now())) {
-            p.setAvailable(p.getAvailable() - 1);
-            productRepository.save(p);
+    private void handleSeasonalProduct(Product product) {
+        if (isInSeason(product) && product.getAvailable() > 0) {
+            decrementStock(product);
         } else {
-            productService.handleExpiredProduct(p);
+            productService.handleSeasonalProduct(product);
         }
+    }
+
+    private void handleExpirableProduct(Product product) {
+        if (product.getAvailable() > 0 && product.getExpiryDate().isAfter(LocalDate.now())) {
+            decrementStock(product);
+        } else {
+            productService.handleExpiredProduct(product);
+        }
+    }
+
+    private void decrementStock(Product product) {
+        product.setAvailable(product.getAvailable() - 1);
+        productRepository.save(product);
+    }
+
+    private boolean isInSeason(Product product) {
+        LocalDate today = LocalDate.now();
+        return today.isAfter(product.getSeasonStartDate()) && today.isBefore(product.getSeasonEndDate());
     }
 }

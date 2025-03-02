@@ -13,40 +13,66 @@ import com.nimbleways.springboilerplate.repositories.ProductRepository;
 public class ProductServiceImplementation implements ProductService {
 
     @Autowired
-    ProductRepository pr;
+    private ProductRepository productRepository;
 
     @Autowired
-    NotificationService ns;
+    private NotificationService notificationService;
 
-    public void notifyDelay(int leadTime, Product p) {
-        p.setLeadTime(leadTime);
-        pr.save(p);
-        ns.sendDelayNotification(leadTime, p.getName());
+    public void notifyDelay(int leadTime, Product product) {
+        product.setLeadTime(leadTime);
+        productRepository.save(product);
+        notificationService.sendDelayNotification(leadTime, product.getName());
     }
 
-    public void handleSeasonalProduct(Product p) {
-        if (LocalDate.now().plusDays(p.getLeadTime()).isAfter(p.getSeasonEndDate())) {
-            ns.sendOutOfStockNotification(p.getName());
-            p.setAvailable(0);
-            pr.save(p);
-            return;
+    public void handleSeasonalProduct(Product product) {
+        if (isOutOfSeason(product)) {
+            markAsUnavailable(product);
+        } else if (isNotYetInSeason(product)) {
+            notifyOutOfStock(product);
+        } else {
+            notifyDelay(product.getLeadTime(), product);
         }
-        if (p.getSeasonStartDate().isAfter(LocalDate.now())) {
-            ns.sendOutOfStockNotification(p.getName());
-            pr.save(p);
-            return;
-        }
-        notifyDelay(p.getLeadTime(), p);
     }
 
-    public void handleExpiredProduct(Product p) {
-        if (p.getAvailable() > 0 && p.getExpiryDate().isAfter(LocalDate.now())) {
-            p.setAvailable(p.getAvailable() - 1);
-            pr.save(p);
-            return;
+    public void handleExpiredProduct(Product product) {
+        if (isNotExpired(product)) {
+            decrementStock(product);
+        } else {
+            markAsExpired(product);
         }
-        ns.sendExpirationNotification(p.getName(), p.getExpiryDate());
-        p.setAvailable(0);
-        pr.save(p);
+    }
+
+    private boolean isOutOfSeason(Product product) {
+        return LocalDate.now().plusDays(product.getLeadTime()).isAfter(product.getSeasonEndDate());
+    }
+
+    private boolean isNotYetInSeason(Product product) {
+        return product.getSeasonStartDate().isAfter(LocalDate.now());
+    }
+
+    private boolean isNotExpired(Product product) {
+        return product.getAvailable() > 0 && product.getExpiryDate().isAfter(LocalDate.now());
+    }
+
+    private void markAsUnavailable(Product product) {
+        notificationService.sendOutOfStockNotification(product.getName());
+        product.setAvailable(0);
+        productRepository.save(product);
+    }
+
+    private void notifyOutOfStock(Product product) {
+        notificationService.sendOutOfStockNotification(product.getName());
+        productRepository.save(product);
+    }
+
+    private void decrementStock(Product product) {
+        product.setAvailable(product.getAvailable() - 1);
+        productRepository.save(product);
+    }
+
+    private void markAsExpired(Product product) {
+        notificationService.sendExpirationNotification(product.getName(), product.getExpiryDate());
+        product.setAvailable(0);
+        productRepository.save(product);
     }
 }
